@@ -1,0 +1,77 @@
+#共分散パスを入れた場合
+
+library(lavaan)
+library(tidySEM)
+library(ggplot2)
+
+# ==============================================================================
+# 1. モデルの定義 (model_v4_cov)
+# ==============================================================================
+model_v4_cov <- '
+  # 1. 生育・形態への影響（CECが主茎長を駆動、Stem_0729が倒伏を駆動）
+  Stem_0729 ~ a1*CEC
+  Lodging   ~ b1*Stem_0729
+
+  # 2. RCR発病モデル（作象要因 + 緑肥効果 + 土壌水分）
+  RCR_Cate  ~ c1*Lodging + c2*Stem_0729 + c3*Field_Green + c4*vwc_Ave
+
+  # 3. 外生変数同士の共分散（相関）を明示的に許容
+  CEC     ~~ vwc_Ave
+  CEC     ~~ Field_Green
+  vwc_Ave ~~ Field_Green
+'
+
+# ==============================================================================
+# 2. モデルの適合と評価
+# ==============================================================================
+fit_v4_cov <- sem(
+  model_v4_cov, 
+  data = All_GLMM, 
+  ordered = "RCR_Cate"
+)
+
+# 適合度指標および標準化パラメータ（Std.all）の確認
+summary(fit_v4_cov, fit.measures = TRUE, standardized = TRUE)
+
+# ==============================================================================
+# 3. パス図の作成（tidySEM）
+# ==============================================================================
+# ① ノードの配置レイアウト指定（左: 環境・管理 / 中: 作象 / 右: 発病）
+layout_v4 <- get_layout(
+  "CEC",         "Stem_0729", "",
+  "Field_Green", "Lodging",   "RCR_Cate",
+  "vwc_Ave",     "",          "",
+  rows = 3
+)
+
+# ② 標準化パス係数（Std.all）を用いたグラフデータの生成
+graph_v4 <- prepare_graph(
+  fit_v4_cov,
+  layout = layout_v4,
+  est = "std.all"
+)
+
+# ③ エッジ（矢印・曲線）の自動スタイリング処理
+edges_data <- edges(graph_v4)
+
+# p値の欠損（NA）埋め（残差・共分散のエラー防止）
+p_values <- ifelse(is.na(edges_data$pval), 1.0, edges_data$pval)
+
+# 基本スタイル設定（有意 p < 0.05: 黒太実線 / 非有意: グレー細破線）
+edges_data$linetype  <- ifelse(p_values < 0.05, "solid", "dashed")
+edges_data$colour    <- ifelse(p_values < 0.05, "black", "grey60")
+edges_data$linewidth <- ifelse(p_values < 0.05, 1.0, 0.5)
+edges_data$size      <- ifelse(p_values < 0.05, 1.0, 0.5)
+
+# 双方向の共分散パス（~~）の見た目を点線・薄グレーに調整
+is_cov <- (edges_data$from != edges_data$to) & (edges_data$arrow == "both")
+edges_data$linetype[is_cov]  <- "dotdash"
+edges_data$colour[is_cov]    <- "grey40"
+edges_data$linewidth[is_cov] <- 0.6
+edges_data$size[is_cov]      <- 0.6
+
+# 修正したスタイルを代入
+edges(graph_v4) <- edges_data
+
+# ④ パス図のプロット描画
+plot(graph_v4)
