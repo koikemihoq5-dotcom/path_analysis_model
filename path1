@@ -1,0 +1,25 @@
+library(lavaan)
+
+# 1. 最小モデルの定義（パスのラベル付けを追加）
+base_model <- '
+  # 因果関係（回帰式にラベル a1, b1, c1 などを設定）
+  Stem_0729 ~ a1*CEC
+  Lodging   ~ b1*Stem_0729
+  RCR_Cate  ~ c1*Lodging + c2*Stem_0729 + c3*CEC
+
+  # 間接効果（インダイレクト効果）の計算定義
+  indirect_CEC := a1 * b1 * c1   # CEC -> 主茎長 -> 倒伏 -> RCR発病 のルート
+  total_CEC    := c3 + indirect_CEC # 総合効果（直接＋間接）
+'
+
+# 2. モデルの適合（data を All_GLMM に修正）
+fit_base <- sem(base_model, data = All_GLMM, ordered = "RCR_Cate")
+
+# 3. 結果の表示
+summary(fit_base, fit.measures = TRUE, standardized = TRUE)
+
+# パス図の描画（標準化パス係数を表示）
+library(tidySEM)
+library(ggplot2)
+graph_data <- prepare_graph(fit_base, layout = get_layout("CEC", "Stem_0729", "Lodging", "RCR_Cate", rows = 1))
+plot(graph_data)
