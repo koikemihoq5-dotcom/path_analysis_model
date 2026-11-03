@@ -1,0 +1,72 @@
+library(lavaan)
+library(tidySEM)
+library(ggplot2)
+
+# ==============================================================================
+# 1. 前処理（model_v3 で成功していた確実な作成ロジック）
+# ==============================================================================
+# ① 緑肥あり（"green" を含むもの: 2Year_green, Green など）
+All_GLMM$Field_Green <- ifelse(grepl("green", All_GLMM$Field, ignore.case = TRUE) & 
+                                   !grepl("No_green", All_GLMM$Field), 1, 0)
+
+# ② 播種日 Seed の数値化
+All_GLMM$Seed_num <- as.numeric(All_GLMM$Seed)
+
+
+# ==============================================================================
+# 2. モデル定義 (model_v3 スタイルに Seed を追加 / 共分散 ~~ は書かない)
+# ==============================================================================
+model_v6_simple <- '
+  # 1. 生育・形態への影響（播種日 Seed と CEC が主茎長・倒伏を駆動）
+  Stem_0729 ~ a1*Seed_num + a2*CEC
+  Lodging   ~ b1*Stem_0729 + b2*Seed_num
+
+  # 2. RCR発病への直接パス（作象要因 + 緑肥の直接抑制効果）
+  RCR_Cate  ~ c1*Lodging + c2*Stem_0729 + c3*Field_Green
+'
+
+
+# ==============================================================================
+# 3. モデルの適合 (fit_v6_simple)
+# ==============================================================================
+fit_v6_simple <- sem(
+  model_v6_simple, 
+  data = All_GLMM, 
+  ordered = "RCR_Cate"
+)
+
+# 適合度と標準化パラメータ（Std.all）の確認
+summary(fit_v6_simple, fit.measures = TRUE, standardized = TRUE)
+
+
+# ==============================================================================
+# 4. パス図の描画 (tidySEM)
+# ==============================================================================
+# ノード配置レイアウト指定（左: 外生変数 / 中: 作象 / 右: 発病）
+layout_v6 <- get_layout(
+  "Seed_num",    "Stem_0729", "",
+  "CEC",         "Lodging",   "RCR_Cate",
+  "Field_Green", "",          "",
+  rows = 3
+)
+
+# 標準化パス係数 (Std.all) を用いたグラフデータ生成
+graph_v6 <- prepare_graph(
+  fit_v6_simple,
+  layout = layout_v6,
+  est = "std.all"
+)
+
+# エッジスタイルの調整（有意: 黒太実線 / 非有意: グレー細破線）
+edges_data <- edges(graph_v6)
+p_values   <- ifelse(is.na(edges_data$pval), 1.0, edges_data$pval)
+
+edges_data$linetype  <- ifelse(p_values < 0.05, "solid", "dashed")
+edges_data$colour    <- ifelse(p_values < 0.05, "black", "grey60")
+edges_data$linewidth <- ifelse(p_values < 0.05, 1.0, 0.5)
+edges_data$size      <- ifelse(p_values < 0.05, 1.0, 0.5)
+
+edges(graph_v6) <- edges_data
+
+# 描画
+plot(graph_v6)
