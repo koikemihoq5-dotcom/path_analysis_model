@@ -18,8 +18,46 @@ fit_base <- sem(base_model, data = All_GLMM, ordered = "RCR_Cate")
 # 3. 結果の表示
 summary(fit_base, fit.measures = TRUE, standardized = TRUE)
 
-# パス図の描画（標準化パス係数を表示）
+library(lavaan)
 library(tidySEM)
 library(ggplot2)
-graph_data <- prepare_graph(fit_base, layout = get_layout("CEC", "Stem_0729", "Lodging", "RCR_Cate", rows = 1))
+
+# 1. 最小モデルの定義
+base_model <- '
+  Stem_0729 ~ a1*CEC
+  Lodging   ~ b1*Stem_0729
+  RCR_Cate  ~ c1*Lodging + c2*Stem_0729 + c3*CEC
+
+  indirect_CEC := a1 * b1 * c1
+  total_CEC    := c3 + indirect_CEC
+'
+
+# 2. モデルの適合
+fit_base <- sem(base_model, data = All_GLMM, ordered = "RCR_Cate")
+
+# 3. パス図の準備（標準化係数 Std.all を使用）
+graph_data <- prepare_graph(
+  fit_base, 
+  layout = get_layout("CEC", "Stem_0729", "Lodging", "RCR_Cate", rows = 1),
+  est = "std.all"
+)
+
+# 4. エッジデータの抽出と修正（NA処理を適用）
+edges_data <- edges(graph_data)
+
+# pval が NA（ノードの分散や残差など）の場合は 1.0 に置き換えて判定エラーを防止
+p_values <- ifelse(is.na(edges_data$pval), 1.0, edges_data$pval)
+
+# ① 有意（p < 0.05）と非有意で線種と色を設定
+edges_data$linetype  <- ifelse(p_values < 0.05, "solid", "dashed")
+edges_data$colour    <- ifelse(p_values < 0.05, "black", "grey60")
+
+# ② size（非推奨警告の回避用：linewidth と両方に指定して互換性を確保）
+edges_data$linewidth <- ifelse(p_values < 0.05, 1.0, 0.5)
+edges_data$size      <- ifelse(p_values < 0.05, 1.0, 0.5)
+
+# 修正したエッジ情報をグラフィックデータに再代入
+edges(graph_data) <- edges_data
+
+# 5. パス図の描画
 plot(graph_data)
