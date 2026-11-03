@@ -1,0 +1,65 @@
+library(lavaan)
+library(tidySEM)
+library(ggplot2)
+
+# ==============================================================================
+# 1. Field 列から 0/1 のダミー変数を作成
+# ==============================================================================
+# ① 緑肥あり（"green" を含むもの: 2Year_gre en Greenなど）
+All_GLMM$Field_Green <- ifelse(grepl("green", All_GLMM$Field, ignore.case = TRUE) & 
+                                   !grepl("No_green", All_GLMM$Field), 1, 0)
+
+# ② 連作あり（2Year, 4Year, 2Year_gre など連作に該当するもの）
+All_GLMM$Field_RenSaku <- ifelse(All_GLMM$Field %in% c("2Year", "4Year", "2Year_green"), 1, 0)
+
+
+# ==============================================================================
+# 2. モデル定義 (model_v3)
+# ==============================================================================
+model_v3 <- '
+  # 1. 生育・形態への影響（養分と水分が主茎長・倒伏を駆動）
+  Stem_0729 ~ a1*CEC + a2*vwc_Ave
+  Lodging   ~ b1*Stem_0729 + b2*vwc_Ave
+
+  # 2. RCR発病への直接・間接パス
+  # (倒伏・主茎長 + 株元過湿 + 雑草 + 緑肥の有無 + 連作の有無)
+  RCR_Cate  ~ c1*Lodging + c2*Stem_0729 + c3*vwc_Ave + c4*weed + c5*Field_Green + c6*Field_RenSaku
+'
+
+
+# ==============================================================================
+# 3. モデルの適合 (fit_v3)
+# ==============================================================================
+fit_v3 <- sem(
+    model_v3, 
+    data = All_GLMM, 
+    ordered = "RCR_Cate"
+)
+
+# 結果の表示
+summary(fit_v3, fit.measures = TRUE, standardized = TRUE)
+
+
+# ==============================================================================
+# 4. パス図の描画 (tidySEM)
+# ==============================================================================
+# layout = NULL でモデル内の全変数を自動検出・配置
+graph_data <- prepare_graph(
+    fit_v3,
+    layout = NULL,
+    est = "std.all"
+)
+
+# エッジ（パス線）のスタイル調整（有意: 黒太実線 / 非有意: グレー細破線）
+edges_data <- edges(graph_data)
+p_values   <- ifelse(is.na(edges_data$pval), 1.0, edges_data$pval)
+
+edges_data$linetype  <- ifelse(p_values < 0.05, "solid", "dashed")
+edges_data$colour    <- ifelse(p_values < 0.05, "black", "grey60")
+edges_data$linewidth <- ifelse(p_values < 0.05, 1.0, 0.5)
+edges_data$size      <- ifelse(p_values < 0.05, 1.0, 0.5)
+
+edges(graph_data) <- edges_data
+
+# 描画
+plot(graph_data)
